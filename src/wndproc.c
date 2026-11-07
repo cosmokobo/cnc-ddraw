@@ -42,9 +42,73 @@ LRESULT CALLBACK fake_WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
     switch (uMsg)
     {
+    case WM_NCLBUTTONDOWN:
+    {
+        /* l1_miku patch: 창 모드(windowed·비전체화면) 타이틀바 드래그를 자체 수동 루프로 처리한다.
+           실측 판명: lin.exe 포커스 중 DefWindowProc 의 SC_MOVE 모달 루프가 시작 직후 취소된다
+           (실사용자 4.45초 타이틀바 드래그 시도 중 GetCapture=0 불변 — 루프 개시 실패. 모달 루프가
+           필요 없는 더블클릭 SC_MAXIMIZE 토글은 정상 동작이 이를 확증). 게임의 입력 훅/캡처 반응이
+           루프를 깨는 것으로 추정 — 시스템 루프에 의존하지 않고 SetCapture→WM_MOUSEMOVE 추적→
+           SetWindowPos 이동→WM_LBUTTONUP 해제로 직접 수행한다. PostMessage 검증 가능한 경로. */
+        if (g_config.windowed && !g_config.fullscreen && wParam == HTCAPTION)
+        {
+            POINT start_pt = { 0 };
+            real_GetCursorPos(&start_pt);
+
+            RECT wr = { 0 };
+            real_GetWindowRect(hWnd, &wr);
+            int off_x = start_pt.x - wr.left;
+            int off_y = start_pt.y - wr.top;
+
+            SetCapture(hWnd);
+
+            /* 안전장치: 메시지가 50ms 없으면 물리 좌클릭 상태를 검사 — 버튼이 떨어져 있으면 즉시
+               탈출(합성/예외 NCLBUTTONDOWN 로 게임 스레드가 루프에 갇혀 멈추는 사고 방지 —
+               디버그 빌드 실측으로 확인된 고착 시나리오). 실제 드래그는 버튼 홀드 중엔 유지된다. */
+            BOOL dragging = TRUE;
+            MSG msg = { 0 };
+            while (dragging)
+            {
+                if (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE))
+                {
+                    if (msg.hwnd == hWnd && msg.message == WM_MOUSEMOVE)
+                    {
+                        POINT mpt = { GET_X_LPARAM(msg.lParam), GET_Y_LPARAM(msg.lParam) };
+                        real_ClientToScreen(hWnd, &mpt);
+                        real_SetWindowPos(
+                            hWnd, 0, mpt.x - off_x, mpt.y - off_y, 0, 0,
+                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                    else if (msg.message == WM_LBUTTONUP || msg.message == WM_NCLBUTTONUP)
+                    {
+                        dragging = FALSE;
+                    }
+                    else if (msg.message == WM_QUIT)
+                    {
+                        dragging = FALSE;
+                        PostMessageA(hWnd, WM_QUIT, msg.wParam, msg.lParam);
+                    }
+                    else
+                    {
+                        TranslateMessage(&msg);
+                        DispatchMessageA(&msg);
+                    }
+                }
+                else
+                {
+                    MsgWaitForMultipleObjects(0, NULL, FALSE, 50, QS_ALLINPUT);
+                    if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+                        dragging = FALSE;
+                }
+            }
+
+            ReleaseCapture();
+            return 0;
+        }
+        return real_DefWindowProcA(hWnd, uMsg, wParam, lParam);
+    }
     case WM_NULL:
     case WM_MOVING:
-    case WM_NCLBUTTONDOWN:
     case WM_NCLBUTTONUP:
     case WM_NCPAINT:
     case WM_CANCELMODE:
