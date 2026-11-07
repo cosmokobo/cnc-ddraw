@@ -135,6 +135,12 @@ BOOL WINAPI fake_ClipCursor(const RECT* lpRect)
 
         if (g_mouse_locked && !util_is_minimized(g_ddraw.hwnd))
         {
+            /* l1_miku patch: 창 모드에서는 게임의 ClipCursor 요청도 차단(감금 재발 방지 —
+               mouse_lock 패치로 cnc-ddraw 자체 클립은 이미 생략되지만 게임이 직접 요청하는
+               클립은 여기서 통과되므로 함께 막는다). 전체화면은 기존 대로 통과. */
+            if (g_config.windowed && !g_config.fullscreen)
+                return 0;
+
             real_MapWindowPoints(g_ddraw.hwnd, HWND_DESKTOP, (LPPOINT)&dst_rc, 2);
 
             return real_ClipCursor(&dst_rc);
@@ -258,6 +264,14 @@ BOOL WINAPI fake_SetCursorPos(int X, int Y)
         return real_SetCursorPos(X, Y);
 
     if (!g_mouse_locked && !g_config.devmode)
+        return TRUE;
+
+    /* l1_miku patch: 창 모드(windowed·비전체화면)에서는 게임의 물리 커서 워프를 전부 차단한다 —
+       lin.exe 는 포커스 중 매 프레임 SetCursorPos 로 커서를 클라이언트 영역으로 끌어당겨
+       타이틀바 접근(창 이동)을 원천 차단한다(실측: 타이틀바 배치 200ms 내 클라이언트로 워프).
+       게임의 가상 커서(자체 소프트웨어 커서)는 물리 커서와 무관하게 hook 좌표로 동작하므로
+       게임 입력에는 영향이 없다. 전체화면은 기존 대로 통과한다. */
+    if (g_config.windowed && !g_config.fullscreen)
         return TRUE;
 
     POINT pt = { X, Y };
