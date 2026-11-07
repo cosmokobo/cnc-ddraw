@@ -47,7 +47,13 @@ void mouse_lock()
 
         CopyRect(&rc, &g_ddraw.mouse.rc);
         real_MapWindowPoints(g_ddraw.hwnd, HWND_DESKTOP, (LPPOINT)&rc, 2);
-        real_ClipCursor(&rc);
+        /* l1_miku patch: 창 모드(windowed·비전체화면)에서는 커서를 감금하지 않는다 — ClipCursor 가
+           클라이언트 영역에 커서를 가두어 타이틀바를 물리적으로 접근할 수 없게 만들어 창 이동/크기
+           조절을 원천 차단한다(실측: 클릭 즉시 mouse_lock → 포커스 유지 중 커서 감금 → 드래그 불가).
+           가상 커서 에뮬레이션(fake_GetCursorPos 좌표 치환)은 물리 커서 위치와 무관하게 동작하므로
+           게임 입력에는 영향이 없다. 전체화면은 기존 대로 클립을 유지한다. */
+        if (!g_config.windowed || g_config.fullscreen)
+            real_ClipCursor(&rc);
 
         g_mouse_locked = TRUE;
     }
